@@ -1,605 +1,1131 @@
-
 from pathlib import Path
-import json
+
 import pandas as pd
 import streamlit as st
 import plotly.express as px
 
+
 # ============================================================
 # MAVA RESEARCH DEMONSTRATOR
-# Frozen research-result presentation layer.
-# No Gemini/API calls are made by this application.
+# Public thesis presentation layer
+#
+# IMPORTANT:
+# - No Gemini/API calls
+# - No Google Drive paths
+# - No Colab paths
+# - Uses only repository-contained frozen results
 # ============================================================
 
+
 st.set_page_config(
-    page_title="MAVA Research Demonstrator",
+    page_title="MAVA | Multi-Agent Validation Architecture",
     page_icon="🛡️",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ------------------------------------------------------------
-# Styling
-# ------------------------------------------------------------
-st.markdown("""
-<style>
-.block-container {padding-top: 2rem; padding-bottom: 3rem;}
-.hero {
-    padding: 1.6rem 1.8rem;
-    border-radius: 18px;
-    border: 1px solid rgba(128,128,128,.25);
-    margin-bottom: 1.2rem;
-}
-.hero h1 {margin-bottom: .3rem;}
-.hero p {margin-bottom: 0; font-size: 1.05rem;}
-.section-note {color: #666; font-size: .92rem;}
-.metric-label {font-size: .85rem; color:#666;}
-.pipeline {
-    padding: 1rem;
-    border: 1px solid rgba(128,128,128,.25);
-    border-radius: 14px;
-    text-align:center;
-    min-height: 95px;
-}
-</style>
-""", unsafe_allow_html=True)
 
-# ------------------------------------------------------------
-# Paths
-# Works in Colab/Drive and can also work locally if the
-# MAVA_RESEARCH_ROOT environment variable is supplied.
-# ------------------------------------------------------------
-DEFAULT_ROOTS = [
-    Path("/content/drive/MyDrive/MAVA_Research"),
-    Path.cwd(),
-]
+# ============================================================
+# REPOSITORY PATHS
+# ============================================================
 
-def locate_project():
-    for root in DEFAULT_ROOTS:
-        if (root / "outputs").exists() and (root / "results").exists():
-            return root
-    return DEFAULT_ROOTS[0]
+# app.py is located at:
+# repository_root/streamlit/app.py
+#
+# Therefore parents[1] = repository root.
 
-PROJECT_ROOT = locate_project()
-OUTPUTS = PROJECT_ROOT / "outputs"
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+
 RESULTS = PROJECT_ROOT / "results"
-TABLES = RESULTS / "tables"
 FIGURES = RESULTS / "figures"
-DATA = PROJECT_ROOT / "data"
+TABLES = RESULTS / "tables"
 
-# ------------------------------------------------------------
-# Loaders
-# ------------------------------------------------------------
-@st.cache_data
-def csv_file(path_str):
-    path = Path(path_str)
-    return pd.read_csv(path) if path.exists() else None
 
-@st.cache_data
-def text_file(path_str):
-    path = Path(path_str)
-    return path.read_text(encoding="utf-8") if path.exists() else None
+# ============================================================
+# STYLE
+# ============================================================
 
-def first_existing(*paths):
-    for p in paths:
-        if p.exists():
-            return p
-    return None
+st.markdown(
+    """
+    <style>
 
-def table(name):
-    p = TABLES / name
-    return csv_file(str(p))
+    .block-container {
+        padding-top: 2rem;
+        padding-bottom: 3rem;
+        max-width: 1400px;
+    }
 
-def output_table(*relative_paths):
-    p = first_existing(*(OUTPUTS / x for x in relative_paths))
-    return csv_file(str(p)) if p else None
+    .hero {
+        padding: 2rem;
+        border-radius: 20px;
+        border: 1px solid rgba(128,128,128,.25);
+        margin-bottom: 1.5rem;
+    }
 
-def narrative(dataset):
-    p = OUTPUTS / "narratives" / dataset / "raw_response.txt"
-    return text_file(str(p))
+    .hero h1 {
+        margin-bottom: .4rem;
+    }
 
-def image_path(name):
-    p = FIGURES / name
-    return p if p.exists() else None
+    .hero p {
+        font-size: 1.05rem;
+        margin-bottom: 0;
+    }
 
-final_validation = output_table(
-    "validation/mava_revalidation/FINAL_MAVA_REVALIDATION.csv",
-    "final_thesis_analysis/FINAL_THESIS_CLAIM_LEVEL_ANALYSIS.csv",
+    .pipeline {
+        padding: 1.1rem;
+        border-radius: 15px;
+        border: 1px solid rgba(128,128,128,.25);
+        text-align: center;
+        min-height: 105px;
+        margin-bottom: 10px;
+    }
+
+    .pipeline-number {
+        font-size: .75rem;
+        font-weight: 700;
+        opacity: .65;
+    }
+
+    .pipeline-title {
+        font-size: 1rem;
+        font-weight: 700;
+    }
+
+    .pipeline-description {
+        font-size: .82rem;
+        opacity: .7;
+    }
+
+    .result-box {
+        padding: 1.2rem;
+        border-radius: 15px;
+        border: 1px solid rgba(128,128,128,.25);
+        text-align: center;
+    }
+
+    .result-number {
+        font-size: 2rem;
+        font-weight: 700;
+    }
+
+    .result-label {
+        font-size: .85rem;
+        opacity: .7;
+    }
+
+    </style>
+    """,
+    unsafe_allow_html=True,
 )
 
-dataset_results = table("FINAL_DATASET_RESULTS.csv")
-claim_type_results = table("FINAL_CLAIM_TYPE_RESULTS.csv")
-transitions = table("FINAL_VALIDATION_TRANSITIONS.csv")
-overall_results = table("FINAL_OVERALL_RESULTS.csv")
-corrections = table("CORRECTION_VERIFICATION.csv")
-claims = output_table("claims/ALL_DATASETS_ATOMIC_CLAIMS.csv")
 
-# ------------------------------------------------------------
-# Sidebar
-# ------------------------------------------------------------
+# ============================================================
+# LOADERS
+# ============================================================
+
+@st.cache_data
+def load_csv(filename):
+    path = TABLES / filename
+
+    if not path.exists():
+        return None
+
+    return pd.read_csv(path)
+
+
+def load_figure(filename):
+    path = FIGURES / filename
+
+    if path.exists():
+        return str(path)
+
+    return None
+
+
+# ============================================================
+# LOAD THESIS TABLES
+# ============================================================
+
+overall_results = load_csv("FINAL_OVERALL_RESULTS.csv")
+dataset_results = load_csv("FINAL_DATASET_RESULTS.csv")
+claim_type_results = load_csv("FINAL_CLAIM_TYPE_RESULTS.csv")
+transitions = load_csv("FINAL_VALIDATION_TRANSITIONS.csv")
+corrections = load_csv("CORRECTION_VERIFICATION.csv")
+verified_corrections = load_csv("VERIFIED_CORRECTIONS_71.csv")
+remaining_mismatches = load_csv("REMAINING_MISMATCHES_19.csv")
+remaining_unverified = load_csv("REMAINING_UNVERIFIED_14.csv")
+
+# Optional supporting tables
+table01 = load_csv("table01_dataset_results.csv")
+table02 = load_csv("table02_overall_results.csv")
+table03 = load_csv("table03_claim_type_results.csv")
+table04 = load_csv("table04_correction_verification.csv")
+table05 = load_csv("table05_validation_transitions.csv")
+
+
+# ============================================================
+# CONSTANT RESEARCH RESULTS
+# ============================================================
+
+TOTAL_CLAIMS = 126
+
+BASELINE_MATCH = 22
+BASELINE_MISMATCH = 90
+BASELINE_UNVERIFIED = 14
+BASELINE_VERIFIED = 112
+BASELINE_RATE = 80.36
+
+MAVA_MATCH = 93
+MAVA_MISMATCH = 19
+MAVA_UNVERIFIED = 14
+MAVA_VERIFIED = 112
+MAVA_RATE = 16.96
+
+ABSOLUTE_REDUCTION = 63.39
+RELATIVE_REDUCTION = 78.89
+
+PROPOSED_CORRECTIONS = 84
+VALID_CORRECTIONS = 71
+INVALID_CORRECTIONS = 13
+
+
+# ============================================================
+# SIDEBAR
+# ============================================================
+
 st.sidebar.title("🛡️ MAVA")
-st.sidebar.caption("Multi-Agent Validation Architecture")
+
+st.sidebar.caption(
+    "Multi-Agent Validation Architecture"
+)
+
 st.sidebar.divider()
 
 pages = [
     "🏠 Overview",
-    "🏗️ Architecture",
-    "📂 Datasets",
-    "🤖 LLM Narratives",
+    "🏗️ MAVA Architecture",
+    "📂 Experimental Datasets",
     "🔍 Claim Validation",
-    "📊 Results",
-    "🛡️ Correction Agent",
+    "📊 Experimental Results",
+    "🛡️ Correction & Verification",
     "🔎 Research Audit",
 ]
-page = st.sidebar.radio("Navigate", pages)
+
+page = st.sidebar.radio(
+    "Navigate",
+    pages,
+)
 
 st.sidebar.divider()
-st.sidebar.caption("Frozen experimental artifacts")
-st.sidebar.caption("No Gemini API call is made by this app.")
 
-if not OUTPUTS.exists():
-    st.error(f"Could not find MAVA outputs at:\n{OUTPUTS}")
-    st.stop()
+st.sidebar.caption(
+    "Frozen thesis experimental results"
+)
+
+st.sidebar.caption(
+    "No live Gemini/API calls"
+)
+
 
 # ============================================================
 # OVERVIEW
 # ============================================================
+
 if page == "🏠 Overview":
-    st.markdown("""
-    <div class="hero">
-        <h1>Multi-Agent Validation Architecture (MAVA)</h1>
-        <p>
-        A research framework for reducing hallucination in
-        Generative AI-based Business Analytics through claim-level
-        validation and verified correction.
-        </p>
-    </div>
-    """, unsafe_allow_html=True)
+
+    st.markdown(
+        """
+        <div class="hero">
+            <h1>Multi-Agent Validation Architecture</h1>
+
+            <p>
+            Reducing Hallucination in Generative AI-Based Business Analytics
+            through claim-level validation and independently verified correction.
+            </p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # --------------------------------------------------------
+    # Key metrics
+    # --------------------------------------------------------
 
     c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Datasets", "3")
-    c2.metric("Atomic Claims", "126")
-    c3.metric("Baseline", "80.36%")
-    c4.metric("MAVA", "16.96%")
+
+    c1.metric(
+        "Datasets",
+        "3",
+    )
+
+    c2.metric(
+        "Atomic Claims",
+        "126",
+    )
+
+    c3.metric(
+        "Baseline",
+        "80.36%",
+    )
+
+    c4.metric(
+        "MAVA",
+        "16.96%",
+    )
 
     st.divider()
 
-    left, right = st.columns([1.25, 1])
+    # --------------------------------------------------------
+    # Main contribution
+    # --------------------------------------------------------
 
-    with left:
-        st.subheader("Research contribution")
-        st.write(
-            "MAVA separates narrative generation from evidence-based validation. "
-            "LLM-generated business narratives are decomposed into atomic claims, "
-            "validated against deterministic ground truth, and corrected only "
-            "when proposed corrections pass independent verification."
-        )
+    st.subheader("Research Contribution")
 
-        st.success(
-            "Hallucination rate reduction: 63.39 percentage points "
-            "(78.89% relative reduction)."
-        )
-
-    with right:
-        st.subheader("Experimental scope")
-        st.write("Three business analytics datasets:")
-        st.markdown("""
-        - **Customer Churn** — 21 claims
-        - **Financial** — 54 claims
-        - **Walmart** — 51 claims
-        """)
-        st.write("Total: **126 claims**")
-
-    st.divider()
-
-    st.subheader("Baseline → MAVA")
-    overview_df = pd.DataFrame({
-        "System": ["Baseline", "MAVA"],
-        "Hallucination Rate (%)": [80.36, 16.96],
-    })
-    fig = px.bar(
-        overview_df,
-        x="System",
-        y="Hallucination Rate (%)",
-        text_auto=".2f",
-        title="Overall Hallucination Rate",
-    )
-    fig.update_layout(showlegend=False, yaxis_range=[0, 90])
-    st.plotly_chart(fig, use_container_width=True)
-
-# ============================================================
-# ARCHITECTURE
-# ============================================================
-elif page == "🏗️ Architecture":
-    st.title("MAVA Architecture")
-    st.caption(
-        "The architecture below represents the experimental workflow "
-        "implemented and evaluated in the thesis."
+    st.write(
+        """
+        MAVA introduces a validation-oriented architecture for
+        Generative AI-based business analytics. Instead of treating an
+        LLM-generated narrative as a single output, the framework decomposes
+        the narrative into atomic claims and evaluates those claims against
+        deterministic ground truth.
+        """
     )
 
-    stages = [
-        ("01", "Dataset", "Business analytics input"),
-        ("02", "Ground Truth", "Deterministic evidence"),
-        ("03", "Narrative Agent", "LLM-generated narrative"),
-        ("04", "Claim Extraction", "Atomic claim inventory"),
-        ("05", "Validator Agent", "MATCH / MISMATCH / UNVERIFIED"),
-        ("06", "Correction Agent", "Deterministic correction"),
-        ("07", "Correction Verification", "Independent verification"),
-        ("08", "Final MAVA Validation", "Final evaluation"),
-    ]
-
-    for row_start in range(0, len(stages), 4):
-        cols = st.columns(4)
-        for col, (num, title, desc) in zip(cols, stages[row_start:row_start+4]):
-            with col:
-                st.markdown(
-                    f'<div class="pipeline"><b>{num}. {title}</b><br>'
-                    f'<span class="section-note">{desc}</span></div>',
-                    unsafe_allow_html=True
-                )
-        if row_start + 4 < len(stages):
-            st.markdown("<br>", unsafe_allow_html=True)
-
-    st.divider()
-
-    st.subheader("What is different about MAVA?")
-    st.markdown("""
-    **Traditional LLM business analysis**
-
-    `Dataset → LLM → Narrative`
-
-    **MAVA**
-
-    `Dataset → Ground Truth → LLM Narrative → Atomic Claims → Validation → Correction → Verification → Final Result`
-    """)
-
-    st.info(
-        "The key contribution is not simply using an LLM. "
-        "It is the validation-oriented architecture that creates an "
-        "auditable path from generated narrative to evidence-backed claims."
+    st.write(
+        """
+        Claims identified as inconsistent are passed through a deterministic
+        correction process. Proposed corrections are independently verified
+        before being accepted into the final MAVA result.
+        """
     )
 
-# ============================================================
-# DATASETS
-# ============================================================
-elif page == "📂 Datasets":
-    st.title("Dataset Explorer")
-
-    names = {
-        "Customer_Churn": "customer_churn.csv",
-        "Financial": "Financial.csv",
-        "Walmart": "Walmart.csv",
-    }
-    selected = st.selectbox("Select dataset", list(names))
-
-    path = DATA / names[selected]
-    if not path.exists():
-        st.warning(f"Dataset file not found: {path}")
-    else:
-        df = csv_file(str(path))
-
-        a, b, c = st.columns(3)
-        a.metric("Rows", f"{len(df):,}")
-        b.metric("Columns", f"{len(df.columns):,}")
-        c.metric("Claims", {"Customer_Churn": 21, "Financial": 54, "Walmart": 51}[selected])
-
-        st.subheader("Preview")
-        st.dataframe(df.head(20), use_container_width=True, hide_index=True)
-
-        st.subheader("Schema")
-        schema = pd.DataFrame({
-            "Column": df.columns,
-            "Data Type": [str(x) for x in df.dtypes],
-            "Missing Values": [int(df[c].isna().sum()) for c in df.columns],
-        })
-        st.dataframe(schema, use_container_width=True, hide_index=True)
-
-# ============================================================
-# NARRATIVES
-# ============================================================
-elif page == "🤖 LLM Narratives":
-    st.title("Preserved Gemini Narratives")
-    st.caption(
-        "These are the original saved responses used as evidence in the experiment."
+    st.success(
+        f"MAVA reduced the measured hallucination rate from "
+        f"{BASELINE_RATE:.2f}% to {MAVA_RATE:.2f}%, "
+        f"a reduction of {ABSOLUTE_REDUCTION:.2f} percentage points."
     )
 
-    selected = st.selectbox(
-        "Select dataset",
-        ["Customer_Churn", "Financial", "Walmart"]
+    # --------------------------------------------------------
+    # Overall graph
+    # --------------------------------------------------------
+
+    st.subheader("Baseline vs MAVA")
+
+    overall = pd.DataFrame(
+        {
+            "System": ["Baseline", "MAVA"],
+            "Hallucination Rate (%)": [
+                BASELINE_RATE,
+                MAVA_RATE,
+            ],
+        }
     )
-    raw = narrative(selected)
-
-    if raw:
-        st.text_area("Original Gemini response", raw, height=520)
-    else:
-        st.warning("Narrative evidence not found.")
-
-    st.info(
-        "This page displays preserved evidence only. "
-        "It does not call Gemini again."
-    )
-
-# ============================================================
-# CLAIM VALIDATION
-# ============================================================
-elif page == "🔍 Claim Validation":
-    st.title("Claim-Level Validation")
-
-    if final_validation is None:
-        st.error("Final validation artifact not found.")
-        st.stop()
-
-    df = final_validation.copy()
-
-    id_col = next(
-        (c for c in ["Canonical_Claim_ID", "Global_Claim_ID", "Claim_ID"]
-         if c in df.columns),
-        None
-    )
-    status_col = "MAVA_Status" if "MAVA_Status" in df.columns else "Validation_Status"
-
-    c1, c2, c3 = st.columns(3)
-    c1.metric("Total Claims", len(df))
-    c2.metric("MATCH", int((df[status_col] == "MATCH").sum()))
-    c3.metric("MISMATCH", int((df[status_col] == "MISMATCH").sum()))
-
-    st.divider()
-
-    if "Dataset" in df.columns:
-        selected_ds = st.selectbox(
-            "Dataset",
-            ["All"] + sorted(df["Dataset"].dropna().unique().tolist())
-        )
-        if selected_ds != "All":
-            df = df[df["Dataset"] == selected_ds]
-
-    selected_status = st.multiselect(
-        "MAVA status",
-        ["MATCH", "MISMATCH", "UNVERIFIED"],
-        default=["MATCH", "MISMATCH", "UNVERIFIED"],
-    )
-    df = df[df[status_col].isin(selected_status)]
-
-    if "Claim_Type" in df.columns:
-        selected_types = st.multiselect(
-            "Claim type",
-            sorted(df["Claim_Type"].dropna().unique().tolist()),
-            default=sorted(df["Claim_Type"].dropna().unique().tolist()),
-        )
-        df = df[df["Claim_Type"].isin(selected_types)]
-
-    st.write(f"Showing **{len(df)}** claims.")
-
-    display_cols = [
-        c for c in [
-            id_col, "Dataset", "Claim_Type",
-            "Original_Claim_Text", "Claim_Text",
-            "Validation_Status", "MAVA_Status",
-            "Validation_Reason"
-        ] if c and c in df.columns
-    ]
-
-    st.dataframe(
-        df[display_cols] if display_cols else df,
-        use_container_width=True,
-        hide_index=True,
-    )
-
-# ============================================================
-# RESULTS
-# ============================================================
-elif page == "📊 Results":
-    st.title("Experimental Results")
-
-    st.subheader("1. Overall result")
-
-    overall = pd.DataFrame({
-        "System": ["Baseline", "MAVA"],
-        "Hallucination Rate (%)": [80.36, 16.96],
-    })
 
     fig = px.bar(
         overall,
         x="System",
         y="Hallucination Rate (%)",
         text_auto=".2f",
-        title="Baseline vs MAVA Hallucination Rate",
-    )
-    fig.update_layout(yaxis_range=[0, 90], showlegend=False)
-    st.plotly_chart(fig, use_container_width=True)
-
-    st.success(
-        "**63.39 percentage-point reduction** in hallucination rate "
-        "and **78.89% relative reduction**."
+        title="Overall Hallucination Rate",
     )
 
-    st.subheader("2. Dataset-wise comparison")
+    fig.update_layout(
+        showlegend=False,
+        yaxis_range=[0, 90],
+    )
 
-    if dataset_results is not None:
-        d = dataset_results[
-            [
-                "Dataset",
-                "Baseline_Hallucination_Rate_Percent",
-                "MAVA_Hallucination_Rate_Percent",
-            ]
-        ].copy()
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+    )
 
-        d = d.melt(
-            id_vars="Dataset",
-            var_name="System",
-            value_name="Hallucination Rate (%)",
+    # --------------------------------------------------------
+    # Research scope
+    # --------------------------------------------------------
+
+    st.subheader("Experimental Scope")
+
+    scope = pd.DataFrame(
+        {
+            "Dataset": [
+                "Customer Churn",
+                "Financial",
+                "Walmart",
+            ],
+            "Claims": [
+                21,
+                54,
+                51,
+            ],
+        }
+    )
+
+    st.dataframe(
+        scope,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+
+# ============================================================
+# ARCHITECTURE
+# ============================================================
+
+elif page == "🏗️ MAVA Architecture":
+
+    st.title("MAVA Architecture")
+
+    st.write(
+        """
+        MAVA separates Generative AI narrative generation from
+        deterministic evidence validation. The architecture creates an
+        auditable path from a generated business narrative to a verified
+        final result.
+        """
+    )
+
+    # --------------------------------------------------------
+    # Architecture image
+    # --------------------------------------------------------
+
+    architecture = load_figure(
+        "fig01_mava_architecture.png"
+    )
+
+    if architecture:
+
+        st.image(
+            architecture,
+            caption="MAVA Multi-Agent Validation Architecture",
+            use_container_width=True,
         )
-        d["System"] = d["System"].map({
-            "Baseline_Hallucination_Rate_Percent": "Baseline",
-            "MAVA_Hallucination_Rate_Percent": "MAVA",
-        })
 
-        fig = px.bar(
-            d,
-            x="Dataset",
-            y="Hallucination Rate (%)",
-            color="System",
-            barmode="group",
-            text_auto=".2f",
-            title="Dataset-wise Hallucination Rate",
+    # --------------------------------------------------------
+    # Pipeline
+    # --------------------------------------------------------
+
+    st.subheader("Experimental Pipeline")
+
+    stages = [
+        (
+            "01",
+            "Dataset",
+            "Business analytics data",
+        ),
+        (
+            "02",
+            "Ground Truth",
+            "Deterministic evidence",
+        ),
+        (
+            "03",
+            "Narrative Agent",
+            "LLM-generated analysis",
+        ),
+        (
+            "04",
+            "Claim Extraction",
+            "Atomic claims",
+        ),
+        (
+            "05",
+            "Validator Agent",
+            "Evidence comparison",
+        ),
+        (
+            "06",
+            "Correction Agent",
+            "Deterministic correction",
+        ),
+        (
+            "07",
+            "Verification",
+            "Independent checking",
+        ),
+        (
+            "08",
+            "Final MAVA Result",
+            "Final evaluation",
+        ),
+    ]
+
+    for start in range(0, len(stages), 4):
+
+        cols = st.columns(4)
+
+        for col, stage in zip(
+            cols,
+            stages[start:start + 4],
+        ):
+
+            number, title, description = stage
+
+            with col:
+
+                st.markdown(
+                    f"""
+                    <div class="pipeline">
+
+                    <div class="pipeline-number">
+                    {number}
+                    </div>
+
+                    <div class="pipeline-title">
+                    {title}
+                    </div>
+
+                    <div class="pipeline-description">
+                    {description}
+                    </div>
+
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+    st.divider()
+
+    st.subheader("Why MAVA is different")
+
+    col1, col2 = st.columns(2)
+
+    with col1:
+
+        st.markdown("### Conventional LLM Analysis")
+
+        st.code(
+            "Dataset → LLM → Narrative",
+            language="text",
         )
-        fig.update_layout(yaxis_range=[0, 100])
-        st.plotly_chart(fig, use_container_width=True)
 
-        st.dataframe(dataset_results, use_container_width=True, hide_index=True)
+        st.write(
+            "The generated narrative is typically treated as the final output."
+        )
 
-    st.subheader("3. Claim-type comparison")
+    with col2:
+
+        st.markdown("### MAVA")
+
+        st.code(
+            "Dataset → Ground Truth → LLM → Claims → Validation → Correction → Verification",
+            language="text",
+        )
+
+        st.write(
+            "MAVA introduces claim-level evidence checking and verified correction."
+        )
+
+
+# ============================================================
+# DATASETS
+# ============================================================
+
+elif page == "📂 Experimental Datasets":
+
+    st.title("Experimental Datasets")
+
+    st.write(
+        """
+        MAVA was evaluated across three datasets representing different
+        business analytics scenarios.
+        """
+    )
+
+    dataset_info = pd.DataFrame(
+        {
+            "Dataset": [
+                "Customer Churn",
+                "Financial",
+                "Walmart",
+            ],
+            "Rows": [
+                "7,043",
+                "700",
+                "6,435",
+            ],
+            "Columns": [
+                "21",
+                "16",
+                "8",
+            ],
+            "Claims": [
+                21,
+                54,
+                51,
+            ],
+            "Domain": [
+                "Customer analytics",
+                "Financial analytics",
+                "Retail sales analytics",
+            ],
+        }
+    )
+
+    st.dataframe(
+        dataset_info,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.info(
+        "Raw datasets are intentionally not included in the public "
+        "demonstration repository. The public application presents the "
+        "frozen experimental results and research evidence."
+    )
+
+    st.subheader("Dataset-wise claim distribution")
+
+    fig = px.bar(
+        dataset_info,
+        x="Dataset",
+        y="Claims",
+        text="Claims",
+        title="Atomic Claims by Dataset",
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+    )
+
+
+# ============================================================
+# CLAIM VALIDATION
+# ============================================================
+
+elif page == "🔍 Claim Validation":
+
+    st.title("Claim-Level Validation")
+
+    st.write(
+        """
+        Each generated business narrative was decomposed into atomic
+        claims. Claims were classified as MATCH, MISMATCH, or UNVERIFIED
+        according to their agreement with deterministic evidence.
+        """
+    )
+
+    # --------------------------------------------------------
+    # Status metrics
+    # --------------------------------------------------------
+
+    c1, c2, c3, c4 = st.columns(4)
+
+    c1.metric(
+        "Total Claims",
+        TOTAL_CLAIMS,
+    )
+
+    c2.metric(
+        "MATCH",
+        MAVA_MATCH,
+    )
+
+    c3.metric(
+        "MISMATCH",
+        MAVA_MISMATCH,
+    )
+
+    c4.metric(
+        "UNVERIFIED",
+        MAVA_UNVERIFIED,
+    )
+
+    st.divider()
+
+    # --------------------------------------------------------
+    # Claim type results
+    # --------------------------------------------------------
 
     if claim_type_results is not None:
-        ct = claim_type_results[
-            [
-                "Claim_Type",
-                "Baseline_Hallucination_Rate_Percent",
-                "MAVA_Hallucination_Rate_Percent",
-            ]
-        ].fillna(0)
 
-        ct = ct.melt(
-            id_vars="Claim_Type",
-            var_name="System",
-            value_name="Hallucination Rate (%)",
-        )
-        ct["System"] = ct["System"].str.replace(
-            "_Hallucination_Rate_Percent", "", regex=False
+        st.subheader(
+            "Claim-Type Validation"
         )
 
-        fig = px.bar(
-            ct,
-            x="Claim_Type",
-            y="Hallucination Rate (%)",
-            color="System",
-            barmode="group",
-            text_auto=".2f",
-            title="Hallucination Rate by Claim Type",
+        st.dataframe(
+            claim_type_results,
+            use_container_width=True,
+            hide_index=True,
         )
-        fig.update_layout(yaxis_range=[0, 110])
-        st.plotly_chart(fig, use_container_width=True)
 
-    st.subheader("4. Validation transitions")
+    # --------------------------------------------------------
+    # Validation transition
+    # --------------------------------------------------------
 
     if transitions is not None:
-        st.dataframe(transitions, use_container_width=True, hide_index=True)
 
-    # Display existing static thesis figures where available.
-    st.subheader("Research figures")
+        st.subheader(
+            "Validation Transitions"
+        )
+
+        st.dataframe(
+            transitions,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    # --------------------------------------------------------
+    # Existing figure
+    # --------------------------------------------------------
+
+    figure = load_figure(
+        "fig04_claim_status_before_after.png"
+    )
+
+    if figure:
+
+        st.image(
+            figure,
+            caption="Claim Status Before and After MAVA",
+            use_container_width=True,
+        )
+
+    figure = load_figure(
+        "fig05_claim_validation_transitions.png"
+    )
+
+    if figure:
+
+        st.image(
+            figure,
+            caption="Claim Validation Transitions",
+            use_container_width=True,
+        )
+
+    st.info(
+        "The detailed 126-claim inventory remains part of the research "
+        "artifacts. This public dashboard presents its aggregated "
+        "validation evidence."
+    )
+
+
+# ============================================================
+# EXPERIMENTAL RESULTS
+# ============================================================
+
+elif page == "📊 Experimental Results":
+
+    st.title("Experimental Results")
+
+    # --------------------------------------------------------
+    # Main result
+    # --------------------------------------------------------
+
+    st.subheader(
+        "Overall Hallucination Rate"
+    )
+
+    overall = pd.DataFrame(
+        {
+            "System": [
+                "Baseline",
+                "MAVA",
+            ],
+            "Hallucination Rate (%)": [
+                BASELINE_RATE,
+                MAVA_RATE,
+            ],
+        }
+    )
+
+    fig = px.bar(
+        overall,
+        x="System",
+        y="Hallucination Rate (%)",
+        text_auto=".2f",
+        title="Baseline vs MAVA",
+    )
+
+    fig.update_layout(
+        yaxis_range=[0, 90],
+        showlegend=False,
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+    )
+
+    c1, c2 = st.columns(2)
+
+    with c1:
+
+        st.markdown(
+            f"""
+            <div class="result-box">
+
+            <div class="result-number">
+            {ABSOLUTE_REDUCTION:.2f}
+            </div>
+
+            <div class="result-label">
+            Percentage-point reduction
+            </div>
+
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with c2:
+
+        st.markdown(
+            f"""
+            <div class="result-box">
+
+            <div class="result-number">
+            {RELATIVE_REDUCTION:.2f}%
+            </div>
+
+            <div class="result-label">
+            Relative reduction
+            </div>
+
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    # --------------------------------------------------------
+    # Dataset results
+    # --------------------------------------------------------
+
+    st.subheader(
+        "Dataset-wise Results"
+    )
+
+    if dataset_results is not None:
+
+        st.dataframe(
+            dataset_results,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        required = [
+            "Dataset",
+            "Baseline_Hallucination_Rate_Percent",
+            "MAVA_Hallucination_Rate_Percent",
+        ]
+
+        if all(
+            c in dataset_results.columns
+            for c in required
+        ):
+
+            d = dataset_results[
+                required
+            ].copy()
+
+            d = d.rename(
+                columns={
+                    "Baseline_Hallucination_Rate_Percent":
+                        "Baseline",
+                    "MAVA_Hallucination_Rate_Percent":
+                        "MAVA",
+                }
+            )
+
+            d = d.melt(
+                id_vars="Dataset",
+                var_name="System",
+                value_name="Hallucination Rate (%)",
+            )
+
+            fig = px.bar(
+                d,
+                x="Dataset",
+                y="Hallucination Rate (%)",
+                color="System",
+                barmode="group",
+                text_auto=".2f",
+                title="Dataset-wise Hallucination Comparison",
+            )
+
+            fig.update_layout(
+                yaxis_range=[0, 100]
+            )
+
+            st.plotly_chart(
+                fig,
+                use_container_width=True,
+            )
+
+    # --------------------------------------------------------
+    # Claim type
+    # --------------------------------------------------------
+
+    st.subheader(
+        "Claim-Type Results"
+    )
+
+    if claim_type_results is not None:
+
+        st.dataframe(
+            claim_type_results,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    figure = load_figure(
+        "fig06_claim_type_hallucination_comparison.png"
+    )
+
+    if figure:
+
+        st.image(
+            figure,
+            caption="Claim-Type Hallucination Comparison",
+            use_container_width=True,
+        )
+
+    # --------------------------------------------------------
+    # Static thesis figures
+    # --------------------------------------------------------
+
+    st.subheader(
+        "Thesis Visualizations"
+    )
 
     figure_names = [
-        "fig01_mava_architecture.png",
         "fig02_overall_hallucination_rate.png",
         "fig03_dataset_hallucination_comparison.png",
         "fig04_claim_status_before_after.png",
         "fig05_claim_validation_transitions.png",
-        "fig06_claim_type_hallucination_comparison.png",
     ]
 
     for name in figure_names:
-        p = image_path(name)
-        if p:
-            st.image(str(p), caption=name, use_container_width=True)
+
+        figure = load_figure(name)
+
+        if figure:
+
+            st.image(
+                figure,
+                caption=name,
+                use_container_width=True,
+            )
+
 
 # ============================================================
-# CORRECTION
+# CORRECTION & VERIFICATION
 # ============================================================
-elif page == "🛡️ Correction Agent":
-    st.title("Correction Agent & Verification")
 
-    a, b, c = st.columns(3)
-    a.metric("Proposed corrections", "84")
-    b.metric("Valid corrections", "71")
-    c.metric("Rejected corrections", "13")
+elif page == "🛡️ Correction & Verification":
+
+    st.title(
+        "Correction Agent & Independent Verification"
+    )
+
+    c1, c2, c3 = st.columns(3)
+
+    c1.metric(
+        "Proposed Corrections",
+        PROPOSED_CORRECTIONS,
+    )
+
+    c2.metric(
+        "Verified Corrections",
+        VALID_CORRECTIONS,
+    )
+
+    c3.metric(
+        "Rejected Corrections",
+        INVALID_CORRECTIONS,
+    )
+
+    st.divider()
 
     st.write(
-        "Corrections were not accepted automatically. "
-        "Each proposed correction was independently verified against "
-        "the frozen ground truth."
+        """
+        MAVA does not automatically accept corrections. Proposed corrections
+        are independently checked against the frozen ground truth.
+        Only corrections that pass verification are applied to the final
+        MAVA result.
+        """
+    )
+
+    verification = pd.DataFrame(
+        {
+            "Verification Status": [
+                "VALID_CORRECTION",
+                "INVALID_CORRECTION",
+            ],
+            "Count": [
+                VALID_CORRECTIONS,
+                INVALID_CORRECTIONS,
+            ],
+        }
+    )
+
+    fig = px.pie(
+        verification,
+        names="Verification Status",
+        values="Count",
+        title="Correction Verification",
+    )
+
+    st.plotly_chart(
+        fig,
+        use_container_width=True,
+    )
+
+    st.subheader(
+        "Verification Evidence"
     )
 
     if corrections is not None:
+
         st.dataframe(
             corrections,
             use_container_width=True,
             hide_index=True,
         )
 
-        if "Verification_Status" in corrections.columns:
-            counts = (
-                corrections["Verification_Status"]
-                .value_counts()
-                .rename_axis("Status")
-                .reset_index(name="Count")
-            )
+    st.subheader(
+        "Verified Corrections"
+    )
 
-            fig = px.pie(
-                counts,
-                names="Status",
-                values="Count",
-                title="Correction Verification",
-            )
-            st.plotly_chart(fig, use_container_width=True)
+    if verified_corrections is not None:
+
+        st.dataframe(
+            verified_corrections,
+            use_container_width=True,
+            hide_index=True,
+        )
 
     st.success(
-        "71 independently verified corrections were applied in the final MAVA result."
+        "71 independently verified corrections were applied "
+        "to the final MAVA result."
     )
 
+
 # ============================================================
-# AUDIT
+# RESEARCH AUDIT
 # ============================================================
+
 elif page == "🔎 Research Audit":
-    st.title("Research Audit & Reproducibility")
 
-    audit = pd.DataFrame([
-        ["Datasets evaluated", "3"],
-        ["Atomic claims", "126"],
-        ["Baseline validation records", "126"],
-        ["Verified corrections", "71"],
-        ["Rejected corrections", "13"],
-        ["Remaining mismatches", "19"],
-        ["Remaining unverified", "14"],
-        ["Original narratives preserved", "Yes"],
-        ["Frozen ground truth preserved", "Yes"],
-        ["Gemini calls during validation/correction", "0"],
-        ["Previous experimental outputs overwritten", "No"],
-    ], columns=["Audit Item", "Value"])
-
-    st.dataframe(audit, use_container_width=True, hide_index=True)
-
-    st.subheader("Key research artifacts")
-
-    artifact_paths = [
-        "claims/ALL_DATASETS_ATOMIC_CLAIMS.csv",
-        "validation/mava_revalidation/FINAL_MAVA_REVALIDATION.csv",
-        "final_thesis_analysis/FINAL_THESIS_OVERALL_RESULTS.csv",
-        "final_thesis_analysis/FINAL_THESIS_DATASET_RESULTS.csv",
-        "final_thesis_analysis/FINAL_THESIS_CLAIM_TYPE_RESULTS.csv",
-        "correction_verification/CORRECTION_VERIFICATION.csv",
-        "final_thesis_analysis/FINAL_THESIS_EXPERIMENT_SUMMARY.json",
-    ]
-
-    rows = []
-    for rel in artifact_paths:
-        p = OUTPUTS / rel
-        rows.append({
-            "Artifact": rel,
-            "Status": "FOUND" if p.exists() else "MISSING",
-        })
-
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-
-    st.info(
-        "The Streamlit application is a presentation layer over frozen "
-        "research artifacts. It does not modify the experiment."
+    st.title(
+        "Research Audit & Reproducibility"
     )
 
-# ------------------------------------------------------------
-# Footer
-# ------------------------------------------------------------
+    audit = pd.DataFrame(
+        {
+            "Research Item": [
+                "Datasets evaluated",
+                "Atomic claims",
+                "Baseline MATCH",
+                "Baseline MISMATCH",
+                "Baseline UNVERIFIED",
+                "MAVA MATCH",
+                "MAVA MISMATCH",
+                "MAVA UNVERIFIED",
+                "Proposed corrections",
+                "Verified corrections",
+                "Rejected corrections",
+                "Remaining mismatches",
+                "Remaining unverified",
+                "Original evidence modified",
+                "Gemini calls during validation/correction",
+            ],
+            "Value": [
+                "3",
+                "126",
+                "22",
+                "90",
+                "14",
+                "93",
+                "19",
+                "14",
+                "84",
+                "71",
+                "13",
+                "19",
+                "14",
+                "No",
+                "0",
+            ],
+        }
+    )
+
+    st.dataframe(
+        audit,
+        use_container_width=True,
+        hide_index=True,
+    )
+
+    st.subheader(
+        "Research Integrity"
+    )
+
+    st.markdown(
+        """
+        ✓ Original claims preserved
+
+        ✓ Frozen ground truth preserved
+
+        ✓ Original validation preserved
+
+        ✓ Independently verified corrections
+
+        ✓ Invalid corrections excluded
+
+        ✓ No additional Gemini API calls
+
+        ✓ Previous experimental outputs preserved
+
+        ✓ Final result generated from the same 126 claims
+        """
+    )
+
+    st.subheader(
+        "Remaining Mismatches"
+    )
+
+    if remaining_mismatches is not None:
+
+        st.dataframe(
+            remaining_mismatches,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    else:
+
+        st.write(
+            "19 remaining mismatches are recorded in the thesis result tables."
+        )
+
+    st.subheader(
+        "Remaining Unverified Claims"
+    )
+
+    if remaining_unverified is not None:
+
+        st.dataframe(
+            remaining_unverified,
+            use_container_width=True,
+            hide_index=True,
+        )
+
+    else:
+
+        st.write(
+            "14 claims remain UNVERIFIED and are preserved "
+            "as part of the final evaluation."
+        )
+
+
+# ============================================================
+# FOOTER
+# ============================================================
+
 st.divider()
+
 st.caption(
-    "MAVA Research Demonstrator • Frozen experimental evidence • "
-    "No live Gemini calls"
+    "MAVA Research Demonstrator | "
+    "Frozen thesis experimental evidence | "
+    "No live Gemini/API calls"
 )
