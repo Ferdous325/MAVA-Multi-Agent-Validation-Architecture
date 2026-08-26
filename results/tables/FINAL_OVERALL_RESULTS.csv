@@ -1,0 +1,9 @@
+Metric,Baseline,MAVA
+Total Claims,126.0,126.0
+MATCH,22.0,93.0
+MISMATCH,90.0,19.0
+UNVERIFIED,14.0,14.0
+Verified Claims,112.0,112.0
+Hallucination Rate (%),80.35714285714286,16.964285714285715
+Absolute Reduction (pp),0.0,63.392857142857146
+Relative Reduction (%),0.0,78.88888888888889

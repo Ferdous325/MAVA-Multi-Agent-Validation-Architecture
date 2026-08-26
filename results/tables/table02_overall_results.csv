@@ -1,0 +1,13 @@
+Metric,Value
+Total claims,126.0
+Baseline MATCH,22.0
+Baseline MISMATCH,90.0
+Baseline UNVERIFIED,14.0
+Baseline hallucination rate (%),80.36
+MAVA MATCH,93.0
+MAVA MISMATCH,19.0
+MAVA UNVERIFIED,14.0
+MAVA hallucination rate (%),16.96
+Absolute reduction (percentage points),63.39
+Relative reduction (%),78.89
+MISMATCH → MATCH,71.0

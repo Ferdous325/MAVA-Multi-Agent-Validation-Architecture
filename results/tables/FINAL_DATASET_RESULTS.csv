@@ -1,0 +1,4 @@
+Dataset,Total_Claims,Baseline_MATCH,Baseline_MISMATCH,Baseline_UNVERIFIED,Baseline_Verified,Baseline_Hallucination_Rate_Percent,MAVA_MATCH,MAVA_MISMATCH,MAVA_UNVERIFIED,MAVA_Verified,MAVA_Hallucination_Rate_Percent,Reduction_Percentage_Points
+Customer_Churn,21,6,12,3,18,66.66666666666666,12,6,3,18,33.33333333333333,33.33333333333333
+Financial,54,9,35,10,44,79.54545454545455,31,13,10,44,29.545454545454547,50.0
+Walmart,51,7,43,1,50,86.0,50,0,1,50,0.0,86.0
