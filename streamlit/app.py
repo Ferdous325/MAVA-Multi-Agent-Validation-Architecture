@@ -1549,5 +1549,6 @@ st.divider()
 st.caption(
     "MAVA Research Demonstrator • "
     "Multi-Agent Validation Architecture • "
-   
+    "Frozen thesis experimental evidence • "
+    "No live Gemini/API calls"
 )
